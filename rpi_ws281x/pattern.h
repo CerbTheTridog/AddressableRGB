@@ -11,10 +11,10 @@ extern "C" {
 /* The basic structure for all patterns */
 struct pattern
 {
-    /* x */
-    uint8_t width;
-    /* y */
-    uint8_t height;
+    /* x - XXX: Rainbow Specific */
+    uint16_t width;
+    /* y - XXX: Rainbow Specific*/
+    uint16_t height;
     /* The total number of LEDs to consider as a part of the pattern */
     uint32_t led_count;
     /* Turn off the lights when exiting */
@@ -43,8 +43,6 @@ struct pattern
     ws2811_return_t (*func_kill_pattern)(struct pattern *pattern);
     /* Free pattern form memory */
     ws2811_return_t (*func_delete)(struct pattern *pattern);
-    /* Interupt whatever pattern is running - Specifically for control+c */
-    ws2811_return_t (*func_interupt)(struct pattern *pattern);
 };
 
 

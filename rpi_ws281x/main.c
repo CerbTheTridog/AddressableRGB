@@ -53,6 +53,7 @@ static char VERSION[] = "0.0.6";
 #include "ws2811.h"
 #include "pattern.h"
 #include "pattern_rainbow.h"
+#include "log.h"
 
 #define ARRAY_SIZE(stuff)       (sizeof(stuff) / sizeof(stuff[0]))
 
@@ -60,9 +61,9 @@ static char VERSION[] = "0.0.6";
 #define TARGET_FREQ             WS2811_TARGET_FREQ
 #define GPIO_PIN                18
 #define DMA                     10
-#define STRIP_TYPE            WS2811_STRIP_RGB		// WS2812/SK6812RGB integrated chip+leds
+#define STRIP_TYPE              WS2811_STRIP_RGB		// WS2812/SK6812RGB integrated chip+leds
 
-#define WIDTH                   150
+#define WIDTH                   300
 #define HEIGHT                  1
 #define LED_COUNT               (WIDTH * HEIGHT)
 
@@ -98,9 +99,10 @@ uint8_t running = 1;
 
 static void ctrl_c_handler(int signum)
 {
+    log_info("Control+C GET!");
 	(void)(signum);
     running = 0;
-    pattern->func_interupt(pattern);
+    pattern->func_kill_pattern(pattern);
 }
 
 static void setup_handlers(void)
@@ -109,7 +111,7 @@ static void setup_handlers(void)
     {
         .sa_handler = ctrl_c_handler,
     };
-
+    
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
 }
@@ -283,9 +285,12 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 
 int main(int argc, char *argv[])
 {
-    ws2811_return_t ret;
+    /* LOG_MATRIX_TRACE, LOG_TRACE, LOG_DEBUG, LOG_INFO, LOG_WARN, LOG_ERROR, LOG_FATAL */
+    log_set_level(LOG_INFO);
 
-    sprintf(VERSION, "%d.%d.%d", VERSION_MAJOR, VERSION_MINOR, VERSION_MICRO);
+    ws2811_return_t ret;
+    log_info("Version: %d.%d.%d", VERSION_MAJOR, VERSION_MINOR, VERSION_MICRO);
+    //sprintf(VERSION, "%d.%d.%d", VERSION_MAJOR, VERSION_MINOR, VERSION_MICRO);
 
     parseargs(argc, argv, &ledstring);
     /* Handlers should only be caught in this file. And commands propogate down */
@@ -293,33 +298,42 @@ int main(int argc, char *argv[])
 
     if ((ret = ws2811_init(&ledstring)) != WS2811_SUCCESS)
     {
-        fprintf(stderr, "ws2811_init failed: %s\n", ws2811_get_return_t_str(ret));
+        log_fatal("ws2811_init failed: %s", ws2811_get_return_t_str(ret));
+        //fprintf(stderr, "ws2811_init failed: %s\n", ws2811_get_return_t_str(ret));
         return ret;
     }
  
     /* Which pattern to do? */
     if((ret = rainbow_create(&pattern)) != WS2811_SUCCESS) {
+        log_fatal("rainbox_create failed: %s", ws2811_get_return_t_str(ret));
         return ret;
     }
+
+    /* Configure settings */
     pattern->width = width;
     pattern->height = height;
     pattern->led_count = led_count;
     pattern->clear_on_exit = clear_on_exit;
     pattern->ledstring = ledstring;
+    pattern->refresh_rate = 666;
+
+    /* Load the program into memory */
     pattern->func_load_pattern(pattern);
+
+    /* Start the program */
     pattern->func_start_pattern(pattern);
-    pattern->refresh_rate = 10;
+
     /* We halt until control+c is provided */
     while (running) { 
-        pattern->refresh_rate = 60;
-        sleep (5);
+        sleep (1);
     }
 
-    pattern->func_kill_pattern(pattern);
+    /* Clear the program from memory */
+    //pattern->func_kill_pattern(pattern);
     ws2811_fini(&ledstring);
 
+    /* Clean up stuff */
     rainbow_delete(pattern); 
     pattern = NULL;
-    printf ("\n");
     return ret;
 }
