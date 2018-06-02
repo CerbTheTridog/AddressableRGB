@@ -53,6 +53,7 @@ static char VERSION[] = "0.0.6";
 #include "ws2811.h"
 #include "pattern.h"
 #include "pattern_rainbow.h"
+#include "pattern_pulse.h"
 #include "log.h"
 
 #define ARRAY_SIZE(stuff)       (sizeof(stuff) / sizeof(stuff[0]))
@@ -61,7 +62,7 @@ static char VERSION[] = "0.0.6";
 #define TARGET_FREQ             WS2811_TARGET_FREQ
 #define GPIO_PIN                18
 #define DMA                     10
-#define STRIP_TYPE              WS2811_STRIP_RGB		// WS2812/SK6812RGB integrated chip+leds
+#define STRIP_TYPE              WS2811_STRIP_GRB		// WS2812/SK6812RGB integrated chip+leds
 
 #define WIDTH                   300
 #define HEIGHT                  1
@@ -72,6 +73,8 @@ static int height = HEIGHT;
 static int led_count = LED_COUNT;
 static int clear_on_exit = 0;
 static struct pattern *pattern;
+int program = 0;
+
 ws2811_t ledstring =
 {
     .freq = TARGET_FREQ,
@@ -133,6 +136,7 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 		{"height", required_argument, 0, 'y'},
 		{"width", required_argument, 0, 'x'},
 		{"version", no_argument, 0, 'v'},
+        {"program", required_argument, 0, 'p'},
 		{0, 0, 0, 0}
 	};
 
@@ -140,7 +144,7 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 	{
 
 		index = 0;
-		c = getopt_long(argc, argv, "cd:g:his:vx:y:", longopts, &index);
+		c = getopt_long(argc, argv, "cd:g:his:vx:y:p:", longopts, &index);
 
 		if (c == -1)
 			break;
@@ -164,6 +168,7 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 				"-i (--invert)  - invert pin output (pulse LOW)\n"
 				"-c (--clear)   - clear matrix on exit.\n"
 				"-v (--version) - version information\n"
+                "-p PROGRAM [1,2]\n"
 				, argv[0]);
 			exit(-1);
 
@@ -210,7 +215,11 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 				}
 			}
 			break;
-
+        case 'p':
+            if (optarg) {
+                program = atoi(optarg);
+            }
+            break;
 		case 'y':
 			if (optarg) {
 				height = atoi(optarg);
@@ -290,7 +299,6 @@ int main(int argc, char *argv[])
 
     ws2811_return_t ret;
     log_info("Version: %d.%d.%d", VERSION_MAJOR, VERSION_MINOR, VERSION_MICRO);
-    //sprintf(VERSION, "%d.%d.%d", VERSION_MAJOR, VERSION_MINOR, VERSION_MICRO);
 
     parseargs(argc, argv, &ledstring);
     /* Handlers should only be caught in this file. And commands propogate down */
@@ -299,14 +307,22 @@ int main(int argc, char *argv[])
     if ((ret = ws2811_init(&ledstring)) != WS2811_SUCCESS)
     {
         log_fatal("ws2811_init failed: %s", ws2811_get_return_t_str(ret));
-        //fprintf(stderr, "ws2811_init failed: %s\n", ws2811_get_return_t_str(ret));
         return ret;
     }
  
     /* Which pattern to do? */
-    if((ret = rainbow_create(&pattern)) != WS2811_SUCCESS) {
-        log_fatal("rainbox_create failed: %s", ws2811_get_return_t_str(ret));
-        return ret;
+    if (program == 0) {
+        if((ret = rainbow_create(&pattern)) != WS2811_SUCCESS) {
+            log_fatal("rainbox_create failed: %s", ws2811_get_return_t_str(ret));
+            return ret;
+        }
+    }
+    else if (program == 1) {
+        printf("RUNNING RAINBOW\n");
+        if ((ret = pulse_create(&pattern)) != WS2811_SUCCESS) {
+            log_fatal("pulse_create failed: %s", ws2811_get_return_t_str(ret));
+            return ret;
+        }
     }
 
     /* Configure settings */
@@ -315,7 +331,7 @@ int main(int argc, char *argv[])
     pattern->led_count = led_count;
     pattern->clear_on_exit = clear_on_exit;
     pattern->ledstring = ledstring;
-    pattern->refresh_rate = 666;
+    pattern->movement_rate = 15;
 
     /* Load the program into memory */
     pattern->func_load_pattern(pattern);
@@ -333,7 +349,12 @@ int main(int argc, char *argv[])
     ws2811_fini(&ledstring);
 
     /* Clean up stuff */
-    rainbow_delete(pattern); 
+    if (program == 0) {
+        rainbow_delete(pattern); 
+    }
+    else if (program == 1) {
+        pulse_delete(pattern);
+    }
     pattern = NULL;
     return ret;
 }
