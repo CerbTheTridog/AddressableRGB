@@ -54,28 +54,6 @@
 
 #define ARRAY_SIZE(stuff)       (sizeof(stuff) / sizeof(stuff[0]))
 
-
-uint8_t RED = 0;
-uint8_t ORANGE = 1;
-uint8_t YELLOW = 2;
-uint8_t GREEN = 3;
-uint8_t LIGHTBLUE = 4;
-uint8_t BLUE = 5;
-uint8_t PURPLE = 6;
-uint8_t PINK = 7;
-
-static ws2811_led_t dotcolors[] =
-{
-    0x00FF0000,  // red
-    0x00FF8000,  // orange
-    0x00FFFF00,  // yellow
-    0x0000FF00,  // green
-    0x0000FFFF,  // lightblue
-    0x000000FF,  // blue
-    0x00FF00FF,  // purple
-    0x00FF0080,  // pink
-};
-
 void
 move_lights(struct pattern *pattern) {
     ws2811_led_t *led_array = pattern->ledstring.channel[0].leds;
@@ -83,9 +61,24 @@ move_lights(struct pattern *pattern) {
     // Shift everything in ledstring exactly one led forward
     int i = pattern->led_count - 1;
     while (i > 0) {
-        led_array[i] = led_array[i -1];
+        memmove(&led_array[i], &led_array[i-1], sizeof(ws2811_led_t));
         i--;
     }
+}
+
+static ws2811_led_t color = 0;
+static bool newColor = false;
+static uint32_t intensity = 0;
+/* A new color has been injected. What happens to old color? */
+ws2811_return_t
+pulse_inject(ws2811_led_t in_color, uint32_t in_intensity)
+{
+    printf("pulse_inject(): %d, %d\n", in_color, in_intensity);
+    ws2811_return_t ret = WS2811_SUCCESS;
+    color = in_color;
+    newColor = true;
+    intensity = in_intensity;
+    return ret;
 }
 
 /* Run the threaded loop */
@@ -94,107 +87,144 @@ matrix_run2(void *vargp)
 {
     log_matrix_trace("pulse_run()");
 
-    ws2811_return_t ret;
+    ws2811_return_t ret = WS2811_SUCCESS;
     struct pattern *pattern = (struct pattern*)vargp;
-    int len = pattern->width;
-    int amp = pattern->height;
-    uint32_t color = dotcolors[PURPLE];
-    uint32_t r = (color & 0xFF0000);
-    uint32_t g = (color & 0x00FF00);
-    uint32_t b = (color & 0x0000FF);
-    double slope = (double) (((double)amp / (double)len) / 256);
+    assert(pattern->running);
     pattern->ledstring.channel[0].brightness = 255;
 
-
-    //int count = 0;
-    /* This should never get called before load_rainbox_pattern initializes stuff.
-     * Or ever be called after kill_pattern_rainbox */
-    assert(pattern->running);
-    uint32_t red, green, blue;
-    double scalar;
     while (pattern->running)
     {
+        int len = pattern->width;
+        int amp = pattern->height;
+        uint32_t r = (color & 0xFF0000);
+        uint32_t g = (color & 0x00FF00);
+        uint32_t b = (color & 0x0000FF);
+        uint32_t r_shift = r >> 16;
+        uint32_t g_shift = g >> 8;
+        uint32_t b_shift = b;
+        double slope = (double) (((double)amp / (double)len) / 256);
+
+        uint32_t red, green, blue;
+        double scalar;
+        int i = 0;
+        double prev_amp;
+        bool rampUp = true;
         /* If the pattern is paused, we won't update anything */
         if (!pattern->paused) {
-            //double slope = (double) (((double)amp / (double)len) / 256);
-            double prev_amp = slope;
-            int i = 0;
-            while (i < len-1) {
+            if (!newColor) {
                 move_lights(pattern);
-                
-                /*double */scalar = prev_amp;
-                //printf("Scalar: %lf\n", scalar);
-                prev_amp += slope;
+                pattern->ledstring.channel[0].leds[0] = 0;
+                log_matrix_trace("Injecting 0");
 
-                //auint32_t color = dotcolors[PURPLE];
 
-                /*uint32_t*/ red = r; //(color & 0xFF0000);
-                red = (r >> 16);
-                red = ((uint32_t)(red * scalar) << 16);
-
-                /*uint32_t*/ green = g; //(color & 0x00FF00);
-                green = (green >> 8);
-                green = ((uint32_t)(green * scalar) << 8);
-                
-                /*uint32_t*/ blue = b; //(color & 0x0000FF);
-                blue = (blue * scalar);
-
-                pattern->ledstring.channel[0].leds[0] = (red+green+blue);
-                //printf("[%d] = %d %d %d\n", i, red, green, blue);
-                i++;
-                //count++;
-                //printf("Count: %d\n", count);
-                if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS)
-                {
-                    printf("OHJESUSFUCK\n");
+                if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS) {
                     log_error("ws2811_render failed: %s", ws2811_get_return_t_str(ret));
                     // XXX: This should cause some sort of fatal error to propogate upwards
                     break;
                 }
 
-                //usleep(1000000 / pattern->movement_speed);
+                usleep(1000000 / pattern->movement_rate);
             }
-            while (i >= 0) {
-                move_lights(pattern);
-                
-                /*double*/ scalar = prev_amp;
-                prev_amp -= slope;
+            else if (newColor) {
+                prev_amp = slope;
+                while (pattern->running) {
+                    move_lights(pattern);
+                    if (rampUp) {
+                        if (i == len-1) {
+                            rampUp = false;
+                        }
+                    }
+                    else {
+                        if (i == 0) {
+                            rampUp = true;
+                            newColor = false;
+                            break;
+                        }
+                    }
 
-                //uint32_t color = dotcolors[PURPLE];
+                    scalar = prev_amp;
+                    if (rampUp) {
+                        prev_amp += slope;
+                    }
+                    else {
+                        prev_amp -= slope;
+                    }
 
-                /*uint32_t*/ red = r; //(color & 0xFF0000);
-                red = (red >> 16);
-                red = ((uint32_t)(red * scalar) << 16);
+                    red = ((uint32_t)(r_shift * scalar) << 16);
+                    green = ((uint32_t)(g_shift * scalar) << 8);
+                    blue = ((uint32_t)(b_shift * scalar));
 
-                /*uint32_t*/ green = (color & 0x00FF00);
-                green = (green >> 8);
-                green = ((uint32_t)(green * scalar) << 8);
-                
-                /*uint32_t*/ blue = (color & 0x0000FF);
-                blue = (blue * scalar);
-                //printf("[%d] = %d %d %d\n", i, red, green, blue);
-                pattern->ledstring.channel[0].leds[0] = (red+green+blue);
+                    pattern->ledstring.channel[0].leds[0] = (red+green+blue);
+                    log_matrix_trace("Injecting %d %d %d\n", i, red, green, blue);
 
-                i--;
-                //count++;
-                //printf("Count: %d\n", count);
-                if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS)
-                {
-                    printf("OHJESUSFUCK\n");
-                    log_error("ws2811_render failed: %s", ws2811_get_return_t_str(ret));
-                    // XXX: This should cause some sort of fatal error to propogate upwards
-                    break;
+                    if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS) {
+                        log_error("ws2811_render failed: %s", ws2811_get_return_t_str(ret));
+                        // XXX: This should cause some sort of fatal error to propogate upwards
+                        break;
+                    }
+
+                    usleep(1000000 / pattern->movement_rate);
+                    if (rampUp) {
+                        i++;
+                    }
+                    else {
+                        i--;
+                    }
+
                 }
+#if 0
+                while (i < len-1 && pattern->running) {
+                    move_lights(pattern);
+                
+                    scalar = prev_amp;
+                    prev_amp += slope;
 
-                //usleep(1000000 / pattern->movement_speed);
+
+                    red = ((uint32_t)(r_shift * scalar) << 16);
+                    green = ((uint32_t)(g_shift * scalar) << 8);
+                    blue = ((uint32_t)(b_shift * scalar));
+
+                    pattern->ledstring.channel[0].leds[0] = (red+green+blue);
+                    log_matrix_trace("[%d] = %d %d %d\n", i, red, green, blue);
+
+                    if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS) {
+                        log_error("ws2811_render failed: %s", ws2811_get_return_t_str(ret));
+                        // XXX: This should cause some sort of fatal error to propogate upwards
+                        break;
+                    }
+
+                    usleep(1000000 / pattern->movement_rate);
+                    i++;
+                }
+                while (i >= 0 && pattern->running) {
+                    move_lights(pattern);
+                
+                    scalar = prev_amp;
+                    prev_amp -= slope;
+
+                    red = ((uint32_t)(r_shift * scalar) << 16);
+                    green = ((uint32_t)(g_shift * scalar) << 8);
+                    blue = ((uint32_t)(b_shift * scalar));
+                    log_matrix_trace("[%d] = %d %d %d\n", i, red, green, blue);
+                    pattern->ledstring.channel[0].leds[0] = (red+green+blue);
+
+                    if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS) {
+                        log_error("ws2811_render failed: %s", ws2811_get_return_t_str(ret));
+                        // XXX: This should cause some sort of fatal error to propogate upwards
+                        break;
+                    }
+                    i--;
+                    usleep(1000000 / pattern->movement_rate);
+                }
+                #endif
+                /* We've completely displayed a single color */
+                //color = 0;
+                //newColor = false;
+                //intensity = 0;
             }
-
-            //pattern->ledstring.channel[0].leds[0] = 0xFF0000;
+    
         }
-        // 15 frames /sec
-        //usleep(1000000 / pattern->refresh_rate);
     }
-
     return NULL;
 }
 
@@ -203,9 +233,6 @@ ws2811_return_t
 pulse_load(struct pattern *pattern)
 {
     log_trace("pulse_load()");
-
-    /* Allocate memory */
-    //pattern->matrix = calloc(pattern->width*pattern->height, sizeof(ws2811_led_t));
 
     /* A protection against matrix_run() being called in a bad order. */
     pattern->running = 1;
@@ -275,6 +302,7 @@ pulse_create(struct pattern **pattern)
     (*pattern)->func_start_pattern = &pulse_start;
     (*pattern)->func_kill_pattern = &pulse_kill;
     (*pattern)->func_pause_pattern = &pulse_pause;
+    (*pattern)->func_inject = &pulse_inject;
     (*pattern)->running = true;
     (*pattern)->paused = true;
     return WS2811_SUCCESS;
