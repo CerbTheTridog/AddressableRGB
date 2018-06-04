@@ -73,7 +73,7 @@ static uint32_t intensity = 0;
 ws2811_return_t
 pulse_inject(ws2811_led_t in_color, uint32_t in_intensity)
 {
-    printf("pulse_inject(): %d, %d\n", in_color, in_intensity);
+    log_trace("pulse_inject(): %d, %d\n", in_color, in_intensity);
     ws2811_return_t ret = WS2811_SUCCESS;
     color = in_color;
     newColor = true;
@@ -96,19 +96,15 @@ matrix_run2(void *vargp)
     {
         int len = pattern->width;
         int amp = pattern->height;
-        uint32_t r = (color & 0xFF0000);
-        uint32_t g = (color & 0x00FF00);
-        uint32_t b = (color & 0x0000FF);
-        uint32_t r_shift = r >> 16;
-        uint32_t g_shift = g >> 8;
-        uint32_t b_shift = b;
+        // XXX: This should be based on intensity, not amp and length
         double slope = (double) (((double)amp / (double)len) / 256);
 
+        uint32_t r_shift = (color & 0xFF0000) >> 16;
+        uint32_t g_shift = (color & 0x00FF00) >> 8;
+        uint32_t b_shift = (color & 0x0000FF);
         uint32_t red, green, blue;
         double scalar;
-        int i = 0;
-        double prev_amp;
-        bool rampUp = true;
+        
         /* If the pattern is paused, we won't update anything */
         if (!pattern->paused) {
             if (!newColor) {
@@ -124,105 +120,48 @@ matrix_run2(void *vargp)
                 }
 
                 usleep(1000000 / pattern->movement_rate);
+                continue;
             }
-            else if (newColor) {
-                prev_amp = slope;
-                while (pattern->running) {
-                    move_lights(pattern);
-                    if (rampUp) {
-                        if (i == len-1) {
-                            rampUp = false;
-                        }
-                    }
-                    else {
-                        if (i == 0) {
-                            rampUp = true;
-                            newColor = false;
-                            break;
-                        }
-                    }
 
-                    scalar = prev_amp;
-                    if (rampUp) {
-                        prev_amp += slope;
-                    }
-                    else {
-                        prev_amp -= slope;
-                    }
-
-                    red = ((uint32_t)(r_shift * scalar) << 16);
-                    green = ((uint32_t)(g_shift * scalar) << 8);
-                    blue = ((uint32_t)(b_shift * scalar));
-
-                    pattern->ledstring.channel[0].leds[0] = (red+green+blue);
-                    log_matrix_trace("Injecting %d %d %d\n", i, red, green, blue);
-
-                    if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS) {
-                        log_error("ws2811_render failed: %s", ws2811_get_return_t_str(ret));
-                        // XXX: This should cause some sort of fatal error to propogate upwards
-                        break;
-                    }
-
-                    usleep(1000000 / pattern->movement_rate);
-                    if (rampUp) {
-                        i++;
-                    }
-                    else {
-                        i--;
-                    }
-
-                }
-#if 0
-                while (i < len-1 && pattern->running) {
-                    move_lights(pattern);
+            int i = 0;
+            double prev_amp = slope;
+            bool rampUp = true;
+            bool colorFinished = false;
+            newColor = false;
+            while (!colorFinished && pattern->running) {
+                //if (newColor) {
+                //    printf("SOMEONE HAS GIVEN ME A NEW COLOR FAR TOO EARLY\n");
+                //}   
+                move_lights(pattern);
                 
-                    scalar = prev_amp;
-                    prev_amp += slope;
-
-
-                    red = ((uint32_t)(r_shift * scalar) << 16);
-                    green = ((uint32_t)(g_shift * scalar) << 8);
-                    blue = ((uint32_t)(b_shift * scalar));
-
-                    pattern->ledstring.channel[0].leds[0] = (red+green+blue);
-                    log_matrix_trace("[%d] = %d %d %d\n", i, red, green, blue);
-
-                    if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS) {
-                        log_error("ws2811_render failed: %s", ws2811_get_return_t_str(ret));
-                        // XXX: This should cause some sort of fatal error to propogate upwards
-                        break;
-                    }
-
-                    usleep(1000000 / pattern->movement_rate);
-                    i++;
+                if (rampUp && (i == len-1)) {
+                    rampUp = false;
                 }
-                while (i >= 0 && pattern->running) {
-                    move_lights(pattern);
+                else if (!rampUp && (i == 0)) {
+                    rampUp = true;
+                    colorFinished = true;
+                    break;
+                }
                 
-                    scalar = prev_amp;
-                    prev_amp -= slope;
+                scalar = prev_amp;
+                prev_amp = (rampUp) ? (prev_amp + slope) : (prev_amp - slope);
+                
+                red = ((uint32_t)(r_shift * scalar) << 16);
+                green = ((uint32_t)(g_shift * scalar) << 8);
+                blue = ((uint32_t)(b_shift * scalar));
 
-                    red = ((uint32_t)(r_shift * scalar) << 16);
-                    green = ((uint32_t)(g_shift * scalar) << 8);
-                    blue = ((uint32_t)(b_shift * scalar));
-                    log_matrix_trace("[%d] = %d %d %d\n", i, red, green, blue);
-                    pattern->ledstring.channel[0].leds[0] = (red+green+blue);
+                pattern->ledstring.channel[0].leds[0] = (red+green+blue);
+                log_matrix_trace("Injecting %d %d %d\n", i, red, green, blue);
 
-                    if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS) {
-                        log_error("ws2811_render failed: %s", ws2811_get_return_t_str(ret));
-                        // XXX: This should cause some sort of fatal error to propogate upwards
-                        break;
-                    }
-                    i--;
-                    usleep(1000000 / pattern->movement_rate);
+                if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS) {
+                    log_error("ws2811_render failed: %s", ws2811_get_return_t_str(ret));
+                    // XXX: This should cause some sort of fatal error to propogate upwards
+                    break;
                 }
-                #endif
-                /* We've completely displayed a single color */
-                //color = 0;
-                //newColor = false;
-                //intensity = 0;
+                i = (rampUp) ? (i + 1) : (i - 1);
+
+                usleep(1000000 / pattern->movement_rate);
             }
-    
         }
     }
     return NULL;

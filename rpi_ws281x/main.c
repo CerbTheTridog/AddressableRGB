@@ -63,18 +63,20 @@ static char VERSION[] = "0.0.6";
 #define GPIO_PIN                18
 #define DMA                     10
 #define STRIP_TYPE              WS2811_STRIP_GRB		// WS2812/SK6812RGB integrated chip+leds
-
+#define SLEEP                   1
 #define WIDTH                   300
 #define HEIGHT                  1
 #define LED_COUNT               (WIDTH * HEIGHT)
+#define MOVEMENT_RATE           30
 
 static int width = WIDTH;
 static int height = HEIGHT;
 static int led_count = LED_COUNT;
 static int clear_on_exit = 0;
 static struct pattern *pattern;
+static double movement_rate = MOVEMENT_RATE;
 int program = 0;
-
+static uint32_t sleep_rate = SLEEP;
 ws2811_t ledstring =
 {
     .freq = TARGET_FREQ,
@@ -137,14 +139,16 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 		{"width", required_argument, 0, 'x'},
 		{"version", no_argument, 0, 'v'},
         {"program", required_argument, 0, 'p'},
-		{0, 0, 0, 0}
+        {"movement_rate", required_argument, 0, 'm'},
+        {"sleep_rate", required_argument, 0, 'S'},
+        {0, 0, 0, 0}
 	};
 
 	while (1)
 	{
 
 		index = 0;
-		c = getopt_long(argc, argv, "cd:g:his:vx:y:p:", longopts, &index);
+		c = getopt_long(argc, argv, "cd:g:his:vx:y:p:m:S:", longopts, &index);
 
 		if (c == -1)
 			break;
@@ -169,12 +173,18 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 				"-c (--clear)   - clear matrix on exit.\n"
 				"-v (--version) - version information\n"
                 "-p PROGRAM [1,2]\n"
+                "-m MOVEMENT RATE LEDS-per-second\n"
+                "-S SLEEP RATE\n"
 				, argv[0]);
 			exit(-1);
 
 		case 'D':
 			break;
-
+        case 'm':
+            if (optarg) {
+                movement_rate = atof(optarg);
+            }
+            break;
 		case 'g':
 			if (optarg) {
 				int gpio = atoi(optarg);
@@ -276,7 +286,11 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 				}
 			}
 			break;
-
+        case 'S':
+            if (optarg) {
+                sleep_rate = atoi(optarg);
+            }
+            break;
 		case 'v':
 			fprintf(stderr, "%s version %s\n", argv[0], VERSION);
 			exit(-1);
@@ -331,7 +345,7 @@ int main(int argc, char *argv[])
     pattern->led_count = led_count;
     pattern->clear_on_exit = clear_on_exit;
     pattern->ledstring = ledstring;
-    pattern->movement_rate = 15;
+    pattern->movement_rate = movement_rate;
 
     /* Load the program into memory */
     pattern->func_load_pattern(pattern);
@@ -340,8 +354,25 @@ int main(int argc, char *argv[])
     pattern->func_start_pattern(pattern);
 
     /* We halt until control+c is provided */
-    while (running) { 
-        sleep (1);
+    if (program == 0) {
+        while (running) {
+            sleep(1);
+        }
+    }
+    else if (program == 1) {
+        uint32_t i = 0;
+        bool random = false;
+        while (running) {
+            if (random) {
+                pattern->func_inject(colors[rand() % colors_size], 10);
+                sleep(sleep_rate);
+            }
+            else {
+                pattern->func_inject(colors[i], 10);
+                sleep(sleep_rate);
+                i = (i == colors_size-1) ? 0 : (i + 1);    
+            }
+        }
     }
 
     /* Clear the program from memory */

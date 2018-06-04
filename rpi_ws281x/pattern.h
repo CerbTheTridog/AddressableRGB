@@ -16,7 +16,6 @@ extern "C" {
 #define COLOR_BLUE        0x000000FF
 #define COLOR_PURPLE      0x00FF00FF
 #define COLOR_PINK        0x00FF0080
-
 static const ws2811_led_t colors[] =
 {
     COLOR_RED,
@@ -28,6 +27,8 @@ static const ws2811_led_t colors[] =
     COLOR_PURPLE,
     COLOR_PINK
 };
+
+static const uint32_t colors_size = 8;
 
 /* The basic structure for all patterns */
 struct pattern
@@ -41,7 +42,7 @@ struct pattern
     /* Turn off the lights when exiting */
     bool clear_on_exit;
     /* Movement Rate - LEDs per second */
-    uint16_t movement_rate;
+    double movement_rate;
     /* Program is loaded into memory */
     bool running;
     /* Program is actively paused, but still loaded */

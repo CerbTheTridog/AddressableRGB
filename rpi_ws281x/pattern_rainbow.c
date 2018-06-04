@@ -54,9 +54,9 @@
 
 #define ARRAY_SIZE(stuff)       (sizeof(stuff) / sizeof(stuff[0]))
 
-uint16_t dotspos[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+static uint16_t dotspos[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
 
-ws2811_led_t dotcolors[] =
+static ws2811_led_t dotcolors[] =
 {
     0x00200000,  // red
     0x00201000,  // orange
@@ -184,7 +184,6 @@ matrix_run(void *vargp)
     /* This should never get called before load_rainbox_pattern initializes stuff.
      * Or ever be called after kill_pattern_rainbox */
     assert(pattern->running);
-
     while (pattern->running)
     {
         /* If the pattern is paused, we won't update anything */
@@ -200,7 +199,7 @@ matrix_run(void *vargp)
             }
         }
         // 15 frames /sec
-        usleep(1000000 / pattern->refresh_rate);
+        usleep(1000000 / pattern->movement_rate);
     }
 
     return NULL;
