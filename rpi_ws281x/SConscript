@@ -40,11 +40,20 @@ lib_srcs = Split('''
     dma.c
     rpihw.c
     pattern_rainbow.c
+    pattern_pulse.c
+    log.c
 ''')
 
 version_hdr = tools_env.Version('version')
 ws2811_lib = tools_env.Library('libws2811', lib_srcs)
 tools_env['LIBS'].append(ws2811_lib)
+tools_env['CCFLAGS'].append("-O3")
+tools_env['CCFLAGS'].append("-falign-functions");
+tools_env['CCFLAGS'].append("-falign-labels");
+tools_env['CCFLAGS'].append("-fprefetch-loop-arrays");
+tools_env['CCFLAGS'].append("-ggdb");
+tools_env['CCFLAGS'].append("-pg");
+tools_env['CCFLAGS'].append("-fno-omit-frame-pointer");
 
 # Shared library (if required)
 ws2811_slib = tools_env.SharedLibrary('libws2811', lib_srcs)

@@ -48,7 +48,14 @@ platforms = [
             ],
             'LINKFLAGS' : [
                 "-lrt",
-                "-lpthread"
+                "-lpthread",
+                "-O3",
+                "-falign-loops",
+                "-falign-functions",
+                "-fprefetch-loop-arrays",
+                "-fno-omit-frame-pointer",
+                "-ggdb",
+                "-pg"
             ],
         },
     ], 
