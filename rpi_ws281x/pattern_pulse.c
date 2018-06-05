@@ -91,27 +91,18 @@ matrix_run2(void *vargp)
     struct pattern *pattern = (struct pattern*)vargp;
     assert(pattern->running);
     pattern->ledstring.channel[0].brightness = 255;
-
+    #if 0
     while (pattern->running)
     {
         int len = pattern->width;
         int amp = pattern->height;
-        // XXX: This should be based on intensity, not amp and length
-        double slope = (double) (((double)amp / (double)len) / 256);
 
-        uint32_t r_shift = (color & 0xFF0000) >> 16;
-        uint32_t g_shift = (color & 0x00FF00) >> 8;
-        uint32_t b_shift = (color & 0x0000FF);
-        uint32_t red, green, blue;
-        double scalar;
-        
         /* If the pattern is paused, we won't update anything */
         if (!pattern->paused) {
             if (!newColor) {
                 move_lights(pattern);
                 pattern->ledstring.channel[0].leds[0] = 0;
                 log_matrix_trace("Injecting 0");
-
 
                 if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS) {
                     log_error("ws2811_render failed: %s", ws2811_get_return_t_str(ret));
@@ -122,16 +113,31 @@ matrix_run2(void *vargp)
                 usleep(1000000 / pattern->movement_rate);
                 continue;
             }
+            // XXX: This should be based on intensity, not amp and length
+            double slope = (double) (((double)amp / (double)len) / 256);
+            slope = slope * (double)((double)intensity/(double)100);
 
             int i = 0;
             double prev_amp = slope;
             bool rampUp = true;
             bool colorFinished = false;
             newColor = false;
-            while (!colorFinished && pattern->running) {
-                //if (newColor) {
-                //    printf("SOMEONE HAS GIVEN ME A NEW COLOR FAR TOO EARLY\n");
-                //}   
+            int loopIteration = 0;
+            while (!colorFinished && pattern->running ) {
+                uint32_t r_shift = (color & 0xFF0000) >> 16;
+                uint32_t g_shift = (color & 0x00FF00) >> 8;
+                uint32_t b_shift = (color & 0x0000FF);
+                uint32_t red, green, blue;
+                double scalar;
+        
+                if (newColor) {
+
+                    prev_amp = slope;
+                    i = 0;
+                    newColor = false;
+                    rampUp = true;
+                    colorFinished = false;
+                }   
                 move_lights(pattern);
                 
                 if (rampUp && (i == len-1)) {
@@ -159,11 +165,78 @@ matrix_run2(void *vargp)
                     break;
                 }
                 i = (rampUp) ? (i + 1) : (i - 1);
-
+                loopIteration++;
                 usleep(1000000 / pattern->movement_rate);
             }
         }
     }
+    #else
+    int i = 0;
+    bool rampUp = true;
+    bool colorFinished = false;
+    newColor = false;
+    double prev_amp;
+    while (pattern->running)
+    {
+        int pulseWidth = pattern->pulseWidth;
+        int pulseBrightness = pattern->ledstring.channel[0].brightness;
+        double slope = (double)(((double)pulseBrightness/(double)pulseWidth) / 256);
+        slope = slope * (double)((double)intensity/(double)100);
+        prev_amp = slope;
+
+        if (!pattern->paused) {
+            move_lights(pattern);
+            if (!newColor && colorFinished) {
+                pattern->ledstring.channel[0].leds[0] = 0;
+            } else if (newColor && !colorFinished) { 
+                uint32_t r_shift = (color & 0xFF0000) >> 16;
+                uint32_t g_shift = (color & 0x00FF00) >> 8;
+                uint32_t b_shift = (color & 0x0000FF);
+                uint32_t red, green, blue;
+                double scalar;
+                
+                if (rampUp && (i == pulseWidth-1)) {
+                    rampUp = false;
+                }
+                else if (!rampUp && (i == 0)) {
+                    rampUp = true;
+                    colorFinished = true;
+                    break;
+                }
+                
+                scalar = prev_amp;
+                prev_amp = (rampUp) ? (prev_amp + slope) : (prev_amp - slope);
+                
+                red = ((uint32_t)(r_shift * scalar) << 16);
+                green = ((uint32_t)(g_shift * scalar) << 8);
+                blue = ((uint32_t)(b_shift * scalar));
+
+                pattern->ledstring.channel[0].leds[0] = (red+green+blue);
+                log_matrix_trace("Injecting %d %d %d\n", i, red, green, blue);
+                i = (rampUp) ? (i + 1) : (i - 1);
+                if (i == 0) {
+                    colorFinished = true;
+                }
+            }
+            else if (newColor && colorFinished) {
+                log_matrix_trace("Injecting 0");
+
+                prev_amp = slope;
+                i = 0;
+                newColor = false;
+                rampUp = true;
+                colorFinished = false;
+            }
+
+            if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS) {
+                log_error("ws2811_render failed: %s", ws2811_get_return_t_str(ret));
+                // xxx: this should cause some sort of fatal error to propogate upwards
+                break;
+            }
+        }
+        usleep(1000000 / pattern->movement_rate);
+    }
+#endif
     return NULL;
 }
 
@@ -177,7 +250,7 @@ pulse_load(struct pattern *pattern)
     pattern->running = 1;
 
     pthread_create(&pattern->thread_id, NULL, matrix_run2, pattern);
-    log_info("Rainbow Pattern Loop is now running.");
+    log_info("Pattern Pulse: Loop is now running.");
     return WS2811_SUCCESS;
 }
 
@@ -199,6 +272,25 @@ pulse_stop(struct pattern *pattern)
 }
 
 ws2811_return_t
+pulse_clear(struct pattern *pattern)
+{
+    log_trace("pulse_clear()\n");
+    log_info("Pattern Pulse: Clearing Pattern");
+    ws2811_return_t ret = WS2811_SUCCESS;
+    uint32_t i;
+
+    for (i = 0; i < pattern->led_count; i++) {
+        pattern->ledstring.channel[0].leds[i] = 0;
+    }
+
+    if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS) {
+        log_error("ws2811_render failed: %s", ws2811_get_return_t_str(ret));
+        // xxx: this should cause some sort of fatal error to propogate upwards
+    }
+    return ret;
+}
+
+ws2811_return_t
 pulse_pause(struct pattern *pattern)
 {
     log_trace("pulse_pause()");
@@ -211,20 +303,17 @@ ws2811_return_t
 pulse_kill(struct pattern *pattern)
 {
     log_trace("pulse_kill()");
-
-    if (pattern->clear_on_exit) {
-        log_info("Pulse Pattern Loop: Clearing matrix");
-        //matrix_clear(pattern);
-        //matrix_render(pattern);
-        ws2811_render(&pattern->ledstring);
-    }
-    log_debug("Rainbow Pattern Loop: Stopping run");
+    log_debug("Pattern Pulse: Stopping run");
     pattern->running = 0;
 
-    log_debug("Rainbow Pattern Loop: Waiting for thread %d to end", pattern->thread_id);
+    log_debug("Pattern Pulse: Loop Waiting for thread %d to end", pattern->thread_id);
     pthread_join(pattern->thread_id, NULL);
 
-    log_info("Rainbow Pattern Loop: now stopped");
+    if (pattern->clear_on_exit) {
+        pulse_clear(pattern);
+    }
+
+    log_info("Pattern Pulse: Loop now stopped");
     return WS2811_SUCCESS;
 }
 
@@ -234,7 +323,7 @@ pulse_create(struct pattern **pattern)
     log_trace("pulse_create()");
     *pattern = malloc(sizeof(struct pattern));
     if (*pattern == NULL) {
-        log_error("Rainbow Pattern: Unable to allocate memory for pattern\n");
+        log_error("Pattern Pulse: Unable to allocate memory for pattern\n");
         return WS2811_ERROR_OUT_OF_MEMORY;
     }
     (*pattern)->func_load_pattern = &pulse_load;
@@ -251,7 +340,7 @@ ws2811_return_t
 pulse_delete(struct pattern *pattern)
 {
     log_trace("pulse_delete()");
-    log_debug("Pulse Pattern: Freeing objects");
+    log_debug("Pattern Pulse: Freeing objects");
     free(pattern->matrix);
     pattern->matrix = NULL;
     free(pattern);

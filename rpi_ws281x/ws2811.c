@@ -119,7 +119,7 @@ typedef struct ws2811_device
  *
  * @returns  Current timestamp in microseconds or 0 on error.
  */
-static uint64_t get_microsecond_timestamp()
+uint64_t get_microsecond_timestamp()
 {
     struct timespec t;
 
@@ -476,7 +476,7 @@ static int setup_pcm(ws2811_t *ws2811)
  *
  * @returns  None
  */
-static void dma_start(ws2811_t *ws2811)
+void dma_start(ws2811_t *ws2811)
 {
     ws2811_device_t *device = ws2811->device;
     volatile dma_t *dma = device->dma;
@@ -839,7 +839,7 @@ static ws2811_return_t spi_init(ws2811_t *ws2811)
     return WS2811_SUCCESS;
 }
 
-static ws2811_return_t spi_transfer(ws2811_t *ws2811)
+ws2811_return_t spi_transfer(ws2811_t *ws2811)
 {
     int ret;
     struct spi_ioc_transfer tr;

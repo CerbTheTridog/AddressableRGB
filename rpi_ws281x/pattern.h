@@ -47,6 +47,10 @@ struct pattern
     bool running;
     /* Program is actively paused, but still loaded */
     bool paused;
+    /* If no new color added, maintain previous color */
+    bool maintainColor;
+    /* The width of each pulse */
+    uint32_t pulseWidth;
     /* The thread id of the running loop */
     pthread_t thread_id;
 

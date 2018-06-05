@@ -94,8 +94,6 @@ void matrix_render(struct pattern *pattern)
         for (y = 0; y < height; y++)
         {   
             pattern->ledstring.channel[0].leds[(y * width) + x] = pattern->matrix[y * width + x];
-            //printf("%d -> %d\n", ((y*width)+x), pattern->matrix[y*width+x]);
-            //pattern->ledstring.channel[0].leds[(y * width) + x] = 123;
         }
     }
 }
@@ -253,17 +251,18 @@ rainbow_kill(struct pattern *pattern)
 {
     log_trace("rainbow_kill()");
 
+    log_debug("Rainbow Pattern Loop: Stopping run");
+    pattern->running = 0;
+
+    log_debug("Rainbow Pattern Loop: Waiting for thread %d to end", pattern->thread_id);
+    pthread_join(pattern->thread_id, NULL);
+
     if (pattern->clear_on_exit) {
         log_info("Raindow Pattern Loop: Clearing matrix");
         matrix_clear(pattern);
         matrix_render(pattern);
         ws2811_render(&pattern->ledstring);
     }
-    log_debug("Rainbow Pattern Loop: Stopping run");
-    pattern->running = 0;
-
-    log_debug("Rainbow Pattern Loop: Waiting for thread %d to end", pattern->thread_id);
-    pthread_join(pattern->thread_id, NULL);
 
     log_info("Rainbow Pattern Loop: now stopped");
     return WS2811_SUCCESS;
@@ -290,6 +289,7 @@ rainbow_create(struct pattern **pattern)
 ws2811_return_t
 rainbow_delete(struct pattern *pattern)
 {
+    //rainbow_kill(pattern);
     log_trace("rainbow_delete()");
     log_debug("Rainbow Pattern: Freeing objects");
     free(pattern->matrix);

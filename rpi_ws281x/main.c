@@ -63,11 +63,14 @@ static char VERSION[] = "0.0.6";
 #define GPIO_PIN                18
 #define DMA                     10
 #define STRIP_TYPE              WS2811_STRIP_GRB		// WS2812/SK6812RGB integrated chip+leds
-#define SLEEP                   1
+#define SLEEP                   .5
+
 #define WIDTH                   300
 #define HEIGHT                  1
-#define LED_COUNT               (WIDTH * HEIGHT)
-#define MOVEMENT_RATE           30
+
+#define LED_COUNT               300
+#define MOVEMENT_RATE           100
+#define PULSE_WIDTH             30
 
 static int width = WIDTH;
 static int height = HEIGHT;
@@ -75,8 +78,11 @@ static int led_count = LED_COUNT;
 static int clear_on_exit = 0;
 static struct pattern *pattern;
 static double movement_rate = MOVEMENT_RATE;
+static bool maintain_colors = false;
+static bool pulse_width = PULSE_WIDTH;
 int program = 0;
-static uint32_t sleep_rate = SLEEP;
+static uint32_t sleep_rate = SLEEP * 1000000;
+
 ws2811_t ledstring =
 {
     .freq = TARGET_FREQ,
@@ -140,7 +146,9 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 		{"version", no_argument, 0, 'v'},
         {"program", required_argument, 0, 'p'},
         {"movement_rate", required_argument, 0, 'm'},
+        {"maintain_color", required_argument, 0, 'M'},
         {"sleep_rate", required_argument, 0, 'S'},
+        {"pulse_width", required_argument, 0, 'P'},
         {0, 0, 0, 0}
 	};
 
@@ -148,7 +156,7 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 	{
 
 		index = 0;
-		c = getopt_long(argc, argv, "cd:g:his:vx:y:p:m:S:", longopts, &index);
+		c = getopt_long(argc, argv, "cd:g:his:vx:y:p:m:S:M:P", longopts, &index);
 
 		if (c == -1)
 			break;
@@ -172,9 +180,11 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 				"-i (--invert)  - invert pin output (pulse LOW)\n"
 				"-c (--clear)   - clear matrix on exit.\n"
 				"-v (--version) - version information\n"
-                "-p PROGRAM [1,2]\n"
-                "-m MOVEMENT RATE LEDS-per-second\n"
-                "-S SLEEP RATE\n"
+                "-p (--program) - Which program to run\n"
+                "-m (--movement_rate)  - The number of seconds for an LED to move from one to the next\n"
+                "-S (--sleep_rate)     - The number of seconds to sleep between commands\n"
+                "-M (--maintain_color) - Goes nowhere, does nothing\n"
+                "-P (--pulse_width)    - The number of LEDs x2 per pulse\n"
 				, argv[0]);
 			exit(-1);
 
@@ -183,6 +193,11 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
         case 'm':
             if (optarg) {
                 movement_rate = atof(optarg);
+            }
+            break;
+        case 'M':
+            if (optarg) {
+                maintain_colors = atoi(optarg);
             }
             break;
 		case 'g':
@@ -228,6 +243,11 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
         case 'p':
             if (optarg) {
                 program = atoi(optarg);
+            }
+            break;
+        case 'P':
+            if (optarg) {
+                pulse_width = atoi(optarg);
             }
             break;
 		case 'y':
@@ -288,7 +308,8 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 			break;
         case 'S':
             if (optarg) {
-                sleep_rate = atoi(optarg);
+                sleep_rate = atof(optarg) * 1000000;
+                printf("SLEEPING FOR %d\n", sleep_rate);
             }
             break;
 		case 'v':
@@ -309,7 +330,7 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 int main(int argc, char *argv[])
 {
     /* LOG_MATRIX_TRACE, LOG_TRACE, LOG_DEBUG, LOG_INFO, LOG_WARN, LOG_ERROR, LOG_FATAL */
-    log_set_level(LOG_INFO);
+    log_set_level(LOG_DEBUG);
 
     ws2811_return_t ret;
     log_info("Version: %d.%d.%d", VERSION_MAJOR, VERSION_MINOR, VERSION_MICRO);
@@ -345,7 +366,9 @@ int main(int argc, char *argv[])
     pattern->led_count = led_count;
     pattern->clear_on_exit = clear_on_exit;
     pattern->ledstring = ledstring;
+    pattern->maintainColor = maintain_colors;
     pattern->movement_rate = movement_rate;
+    pattern->pulseWidth = pulse_width;
 
     /* Load the program into memory */
     pattern->func_load_pattern(pattern);
@@ -364,19 +387,20 @@ int main(int argc, char *argv[])
         bool random = false;
         while (running) {
             if (random) {
-                pattern->func_inject(colors[rand() % colors_size], 10);
-                sleep(sleep_rate);
+                pattern->func_inject(colors[rand() % colors_size], rand()%100);
+                pattern->pulseWidth = (rand()%5)*3;
+                usleep(sleep_rate);
             }
             else {
-                pattern->func_inject(colors[i], 10);
-                sleep(sleep_rate);
+                pattern->func_inject(colors[i], rand()%100);
+                pattern->pulseWidth = (rand()%5)*3;
+                usleep(sleep_rate);
                 i = (i == colors_size-1) ? 0 : (i + 1);    
             }
         }
     }
 
     /* Clear the program from memory */
-    //pattern->func_kill_pattern(pattern);
     ws2811_fini(&ledstring);
 
     /* Clean up stuff */
