@@ -8,8 +8,8 @@ extern "C" {
 #include <stdbool.h>
 #include <pthread.h>
 
-#define COLOR_RED    0x00FF0000
-#define COLOR_ORANGE 0x00FF8000
+#define COLOR_RED         0x00FF0000
+#define COLOR_ORANGE      0x00FF8000
 #define COLOR_YELLOW      0x00FFFF00
 #define COLOR_GREEN       0x0000FF00
 #define COLOR_LIGHTBLUE   0x0000FFFF
@@ -73,6 +73,22 @@ struct pattern
     ws2811_return_t (*func_inject)(ws2811_led_t color, uint32_t intensity);
 };
 
+
+/* This only shifts forward one */
+inline void
+move_lights(struct pattern *pattern, uint32_t shift_distance)
+{
+    ws2811_led_t *led_array = pattern->ledstring.channel[0].leds;
+
+    // Shift everything in ledstring exactly one led forward
+    int i = pattern->led_count - shift_distance;
+    while (i > 0) {
+        memmove(&led_array[i], &led_array[i-shift_distance], sizeof(ws2811_led_t));
+        i--;
+    }
+}
+
+/* XXX: Build a move_lights that moves from end back to beginning */
 
 #ifdef __cplusplus
 }
