@@ -28,6 +28,7 @@
  */
 
 #include <stdint.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,23 +53,10 @@
 #include "pattern_pulse.h"
 #include "log.h"
 
-#define ARRAY_SIZE(stuff)       (sizeof(stuff) / sizeof(stuff[0]))
-
-void
-move_lights(struct pattern *pattern) {
-    ws2811_led_t *led_array = pattern->ledstring.channel[0].leds;
-
-    // Shift everything in ledstring exactly one led forward
-    int i = pattern->led_count - 1;
-    while (i > 0) {
-        memmove(&led_array[i], &led_array[i-1], sizeof(ws2811_led_t));
-        i--;
-    }
-}
-
 static ws2811_led_t color = 0;
 static bool newColor = false;
 static uint32_t intensity = 0;
+
 /* A new color has been injected. What happens to old color? */
 ws2811_return_t
 pulse_inject(ws2811_led_t in_color, uint32_t in_intensity)
@@ -91,141 +79,91 @@ matrix_run2(void *vargp)
     struct pattern *pattern = (struct pattern*)vargp;
     assert(pattern->running);
     pattern->ledstring.channel[0].brightness = 255;
-    #if 0
-    while (pattern->running)
-    {
-        int len = pattern->width;
-        int amp = pattern->height;
-
-        /* If the pattern is paused, we won't update anything */
-        if (!pattern->paused) {
-            if (!newColor) {
-                move_lights(pattern);
-                pattern->ledstring.channel[0].leds[0] = 0;
-                log_matrix_trace("Injecting 0");
-
-                if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS) {
-                    log_error("ws2811_render failed: %s", ws2811_get_return_t_str(ret));
-                    // XXX: This should cause some sort of fatal error to propogate upwards
-                    break;
-                }
-
-                usleep(1000000 / pattern->movement_rate);
-                continue;
-            }
-            // XXX: This should be based on intensity, not amp and length
-            double slope = (double) (((double)amp / (double)len) / 256);
-            slope = slope * (double)((double)intensity/(double)100);
-
-            int i = 0;
-            double prev_amp = slope;
-            bool rampUp = true;
-            bool colorFinished = false;
-            newColor = false;
-            int loopIteration = 0;
-            while (!colorFinished && pattern->running ) {
-                uint32_t r_shift = (color & 0xFF0000) >> 16;
-                uint32_t g_shift = (color & 0x00FF00) >> 8;
-                uint32_t b_shift = (color & 0x0000FF);
-                uint32_t red, green, blue;
-                double scalar;
-        
-                if (newColor) {
-
-                    prev_amp = slope;
-                    i = 0;
-                    newColor = false;
-                    rampUp = true;
-                    colorFinished = false;
-                }   
-                move_lights(pattern);
-                
-                if (rampUp && (i == len-1)) {
-                    rampUp = false;
-                }
-                else if (!rampUp && (i == 0)) {
-                    rampUp = true;
-                    colorFinished = true;
-                    break;
-                }
-                
-                scalar = prev_amp;
-                prev_amp = (rampUp) ? (prev_amp + slope) : (prev_amp - slope);
-                
-                red = ((uint32_t)(r_shift * scalar) << 16);
-                green = ((uint32_t)(g_shift * scalar) << 8);
-                blue = ((uint32_t)(b_shift * scalar));
-
-                pattern->ledstring.channel[0].leds[0] = (red+green+blue);
-                log_matrix_trace("Injecting %d %d %d\n", i, red, green, blue);
-
-                if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS) {
-                    log_error("ws2811_render failed: %s", ws2811_get_return_t_str(ret));
-                    // XXX: This should cause some sort of fatal error to propogate upwards
-                    break;
-                }
-                i = (rampUp) ? (i + 1) : (i - 1);
-                loopIteration++;
-                usleep(1000000 / pattern->movement_rate);
-            }
-        }
-    }
-    #else
     int i = 0;
     bool rampUp = true;
-    bool colorFinished = false;
+    bool colorFinished = true;
     newColor = false;
-    double prev_amp;
+    double prev_amp = 0;
+    uint32_t r_shift;
+    uint32_t g_shift;
+    uint32_t b_shift;
+    uint32_t red, green, blue;
+    double scalar;
+    double slope;
+    uint32_t pulseWidth;
+    uint32_t maxStripBrightness;
     while (pattern->running)
     {
-        int pulseWidth = pattern->pulseWidth;
-        int pulseBrightness = pattern->ledstring.channel[0].brightness;
-        double slope = (double)(((double)pulseBrightness/(double)pulseWidth) / 256);
-        slope = slope * (double)((double)intensity/(double)100);
-        prev_amp = slope;
-
         if (!pattern->paused) {
-            move_lights(pattern);
-            if (!newColor && colorFinished) {
-                pattern->ledstring.channel[0].leds[0] = 0;
-            } else if (newColor && !colorFinished) { 
-                uint32_t r_shift = (color & 0xFF0000) >> 16;
-                uint32_t g_shift = (color & 0x00FF00) >> 8;
-                uint32_t b_shift = (color & 0x0000FF);
-                uint32_t red, green, blue;
-                double scalar;
-                
-                if (rampUp && (i == pulseWidth-1)) {
-                    rampUp = false;
-                }
-                else if (!rampUp && (i == 0)) {
-                    rampUp = true;
-                    colorFinished = true;
-                    break;
-                }
-                
-                scalar = prev_amp;
-                prev_amp = (rampUp) ? (prev_amp + slope) : (prev_amp - slope);
-                
-                red = ((uint32_t)(r_shift * scalar) << 16);
-                green = ((uint32_t)(g_shift * scalar) << 8);
-                blue = ((uint32_t)(b_shift * scalar));
+            move_lights(pattern, 1);
+            /* Set up boundary conditions of a single pulse */
+            if (newColor) {
+                // get prev_amp of previous pattern, which if the other ended, it should be zero
+                r_shift = (color & 0xFF0000) >> 16;
+                g_shift = (color & 0x00FF00) >> 8;
+                b_shift = (color & 0x0000FF);
+                colorFinished = true;
 
-                pattern->ledstring.channel[0].leds[0] = (red+green+blue);
-                log_matrix_trace("Injecting %d %d %d\n", i, red, green, blue);
-                i = (rampUp) ? (i + 1) : (i - 1);
-                if (i == 0) {
-                    colorFinished = true;
-                }
-            }
-            else if (newColor && colorFinished) {
-                log_matrix_trace("Injecting 0");
-
-                prev_amp = slope;
+                log_matrix_trace("Injecting");
+                //prev_amp = 0;
                 i = 0;
                 newColor = false;
                 rampUp = true;
                 colorFinished = false;
+                
+                if (pattern->pulseWidth == 0) {
+                    pulseWidth = intensity / 5;
+                }
+                else {
+                    pulseWidth = pattern->pulseWidth;
+                }
+                
+                if (pulseWidth <= 1) {
+		            pulseWidth = 2;
+		        }
+                /* Calculate the slope at wherever the CURRENT led's brightness is
+                 * to the maximum brightness. This could be interupting a different pulse,
+                 * we ramp up from where we are */
+                /* Start with the maximum desired brightness */
+                // XXX rename me
+                maxStripBrightness = pattern->ledstring.channel[0].brightness;
+                /* Divide maximum brightness by the width of the pulse */
+                slope = (double)(((double)(maxStripBrightness-(prev_amp*256))/(double)pulseWidth) / 256);
+                /* Multiply by the intensity */
+                slope = slope * (double)((double)intensity/(double)100);
+                printf("Slope: %lf Prev_Amp: %lf Total: %lf Intensity: %lf \n", slope, prev_amp,
+                            ((slope*pulseWidth)+prev_amp), (double)((double)maxStripBrightness/(double)256));
+            }
+            /* Pulse is finished, insert a blank */
+            else if (colorFinished) {
+                pattern->ledstring.channel[0].leds[0] = 0;
+            } 
+            //printf("Prev Amp: %lf\n", prev_amp);
+            if (!colorFinished) { 
+                if (rampUp && ((uint32_t)i == ((uint32_t)pulseWidth-1))) {
+                    rampUp = false;
+                    maxStripBrightness = pattern->ledstring.channel[0].brightness;
+                    /* Recalculate slope for coming down to 0*/
+                    slope = (double)(((double)maxStripBrightness/(double)pulseWidth) / 256);
+                    slope = slope * (double)((double)intensity/(double)100);
+                }
+                
+                scalar = prev_amp;
+                prev_amp = (rampUp) ? (prev_amp + slope) : (prev_amp - slope);
+
+                red = ((uint32_t)(r_shift * scalar) << 16);
+                green = ((uint32_t)(g_shift * scalar) << 8);
+                blue = ((uint32_t)(b_shift * scalar));
+
+                pattern->ledstring.channel[0].leds[0] = (red+green+blue);
+                log_matrix_trace("Injecting %d %d %d\n", i, red, green, blue);
+                i = (rampUp) ? (i + 1) : (i - 1);
+                
+                if (i == 0) {
+                    colorFinished = true;
+                    prev_amp = 0;
+                }
+                assert(i >= 0);
             }
 
             if ((ret = ws2811_render(&pattern->ledstring)) != WS2811_SUCCESS) {
@@ -236,7 +174,6 @@ matrix_run2(void *vargp)
         }
         usleep(1000000 / pattern->movement_rate);
     }
-#endif
     return NULL;
 }
 
@@ -326,13 +263,18 @@ pulse_create(struct pattern **pattern)
         log_error("Pattern Pulse: Unable to allocate memory for pattern\n");
         return WS2811_ERROR_OUT_OF_MEMORY;
     }
+    /* Assign function pointers */
     (*pattern)->func_load_pattern = &pulse_load;
     (*pattern)->func_start_pattern = &pulse_start;
     (*pattern)->func_kill_pattern = &pulse_kill;
     (*pattern)->func_pause_pattern = &pulse_pause;
     (*pattern)->func_inject = &pulse_inject;
+
+    /* Set default values */
     (*pattern)->running = true;
     (*pattern)->paused = true;
+    (*pattern)->matrix = NULL;
+    (*pattern)->pulseWidth = 0;
     return WS2811_SUCCESS;
 }   
 

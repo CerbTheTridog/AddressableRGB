@@ -68,9 +68,9 @@ static char VERSION[] = "0.0.6";
 #define WIDTH                   300
 #define HEIGHT                  1
 
-#define LED_COUNT               300
+#define LED_COUNT               600
 #define MOVEMENT_RATE           100
-#define PULSE_WIDTH             30
+#define PULSE_WIDTH             10
 
 static int width = WIDTH;
 static int height = HEIGHT;
@@ -79,7 +79,7 @@ static int clear_on_exit = 0;
 static struct pattern *pattern;
 static double movement_rate = MOVEMENT_RATE;
 static bool maintain_colors = false;
-static bool pulse_width = PULSE_WIDTH;
+static uint32_t pulse_width = PULSE_WIDTH;
 int program = 0;
 static uint32_t sleep_rate = SLEEP * 1000000;
 
@@ -156,7 +156,7 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 	{
 
 		index = 0;
-		c = getopt_long(argc, argv, "cd:g:his:vx:y:p:m:S:M:P", longopts, &index);
+		c = getopt_long(argc, argv, "cd:g:his:vx:y:p:m:S:M:P:", longopts, &index);
 
 		if (c == -1)
 			break;
@@ -183,7 +183,7 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
                 "-p (--program) - Which program to run\n"
                 "-m (--movement_rate)  - The number of seconds for an LED to move from one to the next\n"
                 "-S (--sleep_rate)     - The number of seconds to sleep between commands\n"
-                "-M (--maintain_color) - Goes nowhere, does nothing\n"
+                "###-M### (--maintain_color) - Goes nowhere, does nothing\n"
                 "-P (--pulse_width)    - The number of LEDs x2 per pulse\n"
 				, argv[0]);
 			exit(-1);
@@ -362,6 +362,7 @@ int main(int argc, char *argv[])
 
     /* Configure settings */
     pattern->width = width;
+
     pattern->height = height;
     pattern->led_count = led_count;
     pattern->clear_on_exit = clear_on_exit;
@@ -369,7 +370,6 @@ int main(int argc, char *argv[])
     pattern->maintainColor = maintain_colors;
     pattern->movement_rate = movement_rate;
     pattern->pulseWidth = pulse_width;
-
     /* Load the program into memory */
     pattern->func_load_pattern(pattern);
 
@@ -388,12 +388,10 @@ int main(int argc, char *argv[])
         while (running) {
             if (random) {
                 pattern->func_inject(colors[rand() % colors_size], rand()%100);
-                pattern->pulseWidth = (rand()%5)*3;
                 usleep(sleep_rate);
             }
             else {
                 pattern->func_inject(colors[i], rand()%100);
-                pattern->pulseWidth = (rand()%5)*3;
                 usleep(sleep_rate);
                 i = (i == colors_size-1) ? 0 : (i + 1);    
             }
